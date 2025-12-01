@@ -1,83 +1,88 @@
 using UnityEngine;
 
-[RequireComponent(typeof(CharacterController))]
 public class PlayerMovement : MonoBehaviour
 {
-    [Header("Movement Settings")]
-    public float walkSpeed = 5f;
-    public float sprintSpeed = 8f;
-    public float jumpHeight = 1.5f;
-    public float gravity = -20f; // stronger gravity = more responsive jump
+    [Header("Movement")]
+    public float walkSpeed = 4f;
+    public float sprintSpeed = 7f;
+    public float acceleration = 10f;
+    public float gravity = -20f;
+    public float jumpHeight = 1.3f;
 
-    [Header("Camera Settings")]
-    public Transform cameraTransform;
-    public float mouseSensitivity = 200f;
+    [Header("Camera")]
+    public Transform cameraHolder;
+    public Camera playerCamera;   // used for FOV effect
+    public float mouseSensitivity = 180f;
+    public float verticalClamp = 85f;
+    public float fovNormal = 70f;
+    public float fovSprint = 80f;
+    public float fovSpeed = 5f;
 
-    [Header("Ground Check")]
-    public Transform groundCheck;
-    public float groundDistance = 0.2f;
-    public LayerMask groundMask;
+    public bool isSprinting { get; private set; }
+    public CharacterController controller { get; private set; }
 
-    [HideInInspector] public bool isSprinting;
-
-    private CharacterController controller;
     private Vector3 velocity;
-    private float xRotation = 0f;
-    [HideInInspector] public bool isGrounded;
+    private float currentSpeed;
+    private float xRotation;
 
     void Start()
     {
         controller = GetComponent<CharacterController>();
         Cursor.lockState = CursorLockMode.Locked;
+
+        if (playerCamera != null)
+            playerCamera.fieldOfView = fovNormal;
     }
 
     void Update()
     {
-        HandleLook();
         HandleMovement();
-    }
-
-    void HandleLook()
-    {
-        float mouseX = Input.GetAxis("Mouse X") * mouseSensitivity * Time.deltaTime;
-        float mouseY = Input.GetAxis("Mouse Y") * mouseSensitivity * Time.deltaTime;
-
-        xRotation -= mouseY;
-        xRotation = Mathf.Clamp(xRotation, -80f, 80f);
-
-        cameraTransform.localRotation = Quaternion.Euler(xRotation, 0f, 0f);
-        transform.Rotate(Vector3.up * mouseX);
+        HandleCamera();
+        HandleFOV();
     }
 
     void HandleMovement()
     {
-        // --- Sprint input ---
-        isSprinting = Input.GetKey(KeyCode.LeftShift);
-        float speed = isSprinting ? sprintSpeed : walkSpeed;
+        float x = Input.GetAxisRaw("Horizontal");
+        float z = Input.GetAxisRaw("Vertical");
 
-        // --- Movement input ---
-        float x = Input.GetAxis("Horizontal");
-        float z = Input.GetAxis("Vertical");
-        Vector3 move = transform.right * x + transform.forward * z;
-        controller.Move(move * speed * Time.deltaTime);
+        Vector3 direction = (transform.right * x + transform.forward * z).normalized;
 
-        // --- Ground check using Physics.CheckSphere ---
-        isGrounded = Physics.CheckSphere(groundCheck.position, groundDistance, groundMask);
+        isSprinting = Input.GetKey(KeyCode.LeftShift) && z > 0;
 
-        // --- Reset vertical velocity if grounded ---
-        if (isGrounded && velocity.y < 0)
+        float targetSpeed = isSprinting ? sprintSpeed : walkSpeed;
+        currentSpeed = Mathf.Lerp(currentSpeed, targetSpeed * direction.magnitude, acceleration * Time.deltaTime);
+
+        controller.Move(direction * currentSpeed * Time.deltaTime);
+
+        if (controller.isGrounded)
         {
-            velocity.y = -2f; // small downward push to stay grounded
+            velocity.y = -2f;
+            if (Input.GetButtonDown("Jump"))
+                velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
         }
 
-        // --- Jump input ---
-        if (Input.GetButtonDown("Jump") && isGrounded)
-        {
-            velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
-        }
-
-        // --- Apply gravity ---
         velocity.y += gravity * Time.deltaTime;
         controller.Move(velocity * Time.deltaTime);
+    }
+
+    void HandleCamera()
+    {
+        float mouseX = Input.GetAxis("Mouse X") * mouseSensitivity * Time.deltaTime;
+        float mouseY = Input.GetAxis("Mouse Y") * mouseSensitivity * Time.deltaTime;
+
+        transform.Rotate(Vector3.up * mouseX);
+
+        xRotation -= mouseY;
+        xRotation = Mathf.Clamp(xRotation, -verticalClamp, verticalClamp);
+        cameraHolder.localRotation = Quaternion.Euler(xRotation, 0, 0);
+    }
+
+    void HandleFOV()
+    {
+        if (playerCamera == null) return;
+
+        float targetFOV = isSprinting ? fovSprint : fovNormal;
+        playerCamera.fieldOfView = Mathf.Lerp(playerCamera.fieldOfView, targetFOV, Time.deltaTime * fovSpeed);
     }
 }
